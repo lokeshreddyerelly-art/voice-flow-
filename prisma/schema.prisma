@@ -1,0 +1,167 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String    @id @default(uuid())
+  email     String    @unique
+  name      String
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  workflows Workflow[]
+  memories  MemoryRecord[]
+  projects  Project[]
+}
+
+model Project {
+  id          String    @id @default(uuid())
+  name        String
+  description String?
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  workflows Workflow[]
+  memories  MemoryRecord[]
+}
+
+model Workflow {
+  id              String            @id @default(uuid())
+  userId          String
+  projectId       String?
+  title           String
+  originalRequest String
+  inputType       String            @default("text") // text | voice
+  status          String            @default("pending") // pending | planning | planned | running | completed | failed | awaiting_approval | cancelled
+  executionPlan   String?           // JSON
+  settings        String?           // JSON
+  totalDurationMs Int?
+  totalTokens     Int?
+  estimatedCost   Float?
+  error           String?
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  user            User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project         Project?          @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  tasks           WorkflowTask[]
+  agentRuns       AgentRun[]
+  memories        MemoryRecord[]
+  deliverable     FinalDeliverable?
+  toolLogs        ToolExecutionLog[]
+}
+
+model WorkflowTask {
+  id               String           @id @default(uuid())
+  workflowId       String
+  title            String
+  description      String
+  agentType        String           // planner | research | analysis | creation | verification | orchestrator
+  status           String           @default("pending") // pending | running | completed | failed | awaiting_approval | cancelled
+  orderIndex       Int              @default(0)
+  retryCount       Int              @default(0)
+  maxRetries       Int              @default(3)
+  requiresApproval Boolean          @default(false)
+  approvedAt       DateTime?
+  inputData        String?          // JSON
+  outputData       String?          // JSON
+  error            String?
+  startedAt        DateTime?
+  completedAt      DateTime?
+  durationMs       Int?
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+
+  workflow         Workflow         @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  dependencies     TaskDependency[] @relation("TaskDependencies")
+  dependedOnBy     TaskDependency[] @relation("TaskDependedOnBy")
+  agentRuns        AgentRun[]
+  toolLogs         ToolExecutionLog[]
+}
+
+model TaskDependency {
+  id             String       @id @default(uuid())
+  taskId         String
+  dependsOnTaskId String
+  createdAt      DateTime     @default(now())
+
+  task           WorkflowTask @relation("TaskDependencies", fields: [taskId], references: [id], onDelete: Cascade)
+  dependsOnTask  WorkflowTask @relation("TaskDependedOnBy", fields: [dependsOnTaskId], references: [id], onDelete: Cascade)
+
+  @@unique([taskId, dependsOnTaskId])
+}
+
+model AgentRun {
+  id          String        @id @default(uuid())
+  workflowId  String
+  taskId      String?
+  agentType   String
+  prompt      String
+  response    String
+  model       String
+  provider    String        // lyzr | internal | openai
+  latencyMs   Int           @default(0)
+  tokensUsed  Int?
+  status      String        @default("success") // success | error
+  createdAt   DateTime      @default(now())
+
+  workflow    Workflow      @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  task        WorkflowTask? @relation(fields: [taskId], references: [id], onDelete: SetNull)
+}
+
+model MemoryRecord {
+  id           String    @id @default(uuid())
+  userId       String
+  projectId    String?
+  workflowId   String?
+  category     String    @default("context") // findings | decision | intermediate | persistent_knowledge | context
+  title        String
+  content      String
+  sourceAgent  String    @default("orchestrator")
+  isPersistent Boolean   @default(false)
+  embedding    String?   // JSON array of floats for cosine similarity
+  metadata     String?   // JSON
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  project      Project?  @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  workflow     Workflow? @relation(fields: [workflowId], references: [id], onDelete: SetNull)
+}
+
+model FinalDeliverable {
+  id                   String   @id @default(uuid())
+  workflowId           String   @unique
+  executiveSummary     String
+  completedDeliverable String
+  taskOverview         String   // JSON
+  agentContributions   String   // JSON
+  sourceReferences     String   // JSON
+  verificationStatus   String   // JSON
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  workflow             Workflow @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+}
+
+model ToolExecutionLog {
+  id         String        @id @default(uuid())
+  workflowId String
+  taskId     String?
+  toolName   String
+  input      String
+  output     String
+  status     String        @default("success")
+  durationMs Int           @default(0)
+  createdAt  DateTime      @default(now())
+
+  workflow   Workflow      @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  task       WorkflowTask? @relation(fields: [taskId], references: [id], onDelete: SetNull)
+}
